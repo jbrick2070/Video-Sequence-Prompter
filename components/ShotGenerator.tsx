@@ -18,6 +18,17 @@ interface ShotGeneratorProps {
 
 type BatchProcessingMode = 'standard' | 'chained' | 'looper';
 
+// Helper to clean model output and parse JSON safely
+const parseModelJson = (text: string) => {
+  try {
+    const cleaned = text.replace(/```json/g, '').replace(/```/g, '').trim();
+    return JSON.parse(cleaned);
+  } catch (e) {
+    console.error("Failed to parse model JSON:", text);
+    throw new Error("Invalid model response format");
+  }
+};
+
 export const ShotGenerator: React.FC<ShotGeneratorProps> = ({ 
   project, isStudioBusy, setIsStudioBusy, onUpdateProject, onNavigateToExport, onApiError 
 }) => {
@@ -93,10 +104,14 @@ export const ShotGenerator: React.FC<ShotGeneratorProps> = ({
 
   const handleImageUpload = async (id: string, file: File, type: 'source' | 'target') => {
     if (!file.type.startsWith('image/')) return;
-    const base64 = await processFile(file);
-    updateDrafts(prev => prev.map(p => 
-      p.id === id ? { ...p, [type]: base64 } : p
-    ));
+    try {
+      const base64 = await processFile(file);
+      updateDrafts(prev => prev.map(p => 
+        p.id === id ? { ...p, [type]: base64 } : p
+      ));
+    } catch (e) {
+      console.error("File processing failed", e);
+    }
   };
 
   const handleBatchDrop = async (e: React.DragEvent, type: 'alpha' | 'beta' | 'mixed') => {
@@ -107,7 +122,7 @@ export const ShotGenerator: React.FC<ShotGeneratorProps> = ({
     const base64Files = await Promise.all(files.map(f => processFile(f)));
 
     updateDrafts(prev => {
-      let currentPairs = [...prev.filter(p => p.source || p.target)];
+      let currentPairs = [...(prev || []).filter(p => p.source || p.target)];
       
       if (type === 'alpha') {
         base64Files.forEach((img, i) => {
@@ -161,7 +176,8 @@ export const ShotGenerator: React.FC<ShotGeneratorProps> = ({
     if (validPairs.length === 0) return;
 
     setIsStudioBusy(true);
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    // Create new instance as per instructions
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
     
     for (const pair of validPairs) {
       updateDrafts(prev => prev.map(p => p.id === pair.id ? { ...p, status: 'processing' } : p));
@@ -171,8 +187,8 @@ export const ShotGenerator: React.FC<ShotGeneratorProps> = ({
           contents: {
             parts: [
               { text: `Analyze cinematic motion between frames. Style: ${styleDirective}. Output JSON.` },
-              { inlineData: { data: pair.source!.split(',')[1], mimeType: 'image/png' } },
-              { inlineData: { data: pair.target!.split(',')[1], mimeType: 'image/png' } }
+              { inlineData: { data: (pair.source || '').split(',')[1] || '', mimeType: 'image/png' } },
+              { inlineData: { data: (pair.target || '').split(',')[1] || '', mimeType: 'image/png' } }
             ]
           },
           config: {
@@ -189,9 +205,8 @@ export const ShotGenerator: React.FC<ShotGeneratorProps> = ({
           }
         });
         
-        const result = JSON.parse(response.text || "{}");
+        const result = parseModelJson(response.text || "{}");
         
-        // Use functional updater to get latest state for sequence numbers
         onUpdateProject(prev => {
           const baseNum = prev.startingSequenceNumber || 1;
           const currentCount = baseNum + prev.shots.length;
@@ -200,8 +215,8 @@ export const ShotGenerator: React.FC<ShotGeneratorProps> = ({
             id: 'gen-' + Math.random().toString(36).substr(2, 9),
             sequenceOrder: currentCount,
             topic: result.topic || "Sequence",
-            visualAnalysis: result.analysis,
-            actionPrompt: result.prompt,
+            visualAnalysis: result.analysis || "No analysis provided",
+            actionPrompt: result.prompt || "No prompt generated",
             sourceImage: pair.source!,
             targetImage: pair.target!,
             model: 'veo-3.1-generate-preview',
@@ -215,13 +230,13 @@ export const ShotGenerator: React.FC<ShotGeneratorProps> = ({
         updateDrafts(prev => prev.map(p => p.id === pair.id ? { ...p, status: 'completed' } : p));
       } catch (err) {
         updateDrafts(prev => prev.map(p => p.id === pair.id ? { ...p, status: 'error' } : p));
-        if (onApiError) onApiError(err);
+        if (onApiError) onApiError(err, "Drafting Error");
       }
     }
     
     setIsStudioBusy(false);
     updateDrafts(prev => {
-        const filtered = prev.filter(p => p.status !== 'completed');
+        const filtered = (prev || []).filter(p => p.status !== 'completed');
         return filtered.length > 0 ? filtered : [{ id: 'shot-' + Date.now(), source: null, target: null, status: 'idle' }];
     });
   };

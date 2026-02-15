@@ -6,7 +6,8 @@ import { ExportView } from './components/ExportView';
 import { ProjectLibrary } from './components/ProjectLibrary';
 import { CinematicBackground } from './components/CinematicBackground';
 import { ErrorModal } from './components/ErrorModal';
-import { ArrowLeft, Clapperboard, Film, LayoutGrid, Key, Cpu } from 'lucide-react';
+import { getAllProjects, saveAllProjects } from './storage';
+import { ArrowLeft, Clapperboard, Film, LayoutGrid, Key, Cpu, Loader2 } from 'lucide-react';
 
 declare global {
   interface AIStudio {
@@ -18,22 +19,24 @@ declare global {
   }
 }
 
+const generateId = () => {
+  try {
+    return crypto.randomUUID();
+  } catch (e) {
+    return Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
+  }
+};
+
 export const App: React.FC = () => {
   const [hasKey, setHasKey] = useState<boolean | null>(null);
-  const [projects, setProjects] = useState<Project[]>(() => {
-    try {
-      const saved = localStorage.getItem('veo_continuity_v4');
-      return saved ? JSON.parse(saved) : [];
-    } catch (e) {
-      return [];
-    }
-  });
-  
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [isLoadingStorage, setIsLoadingStorage] = useState(true);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'shots' | 'export'>('shots');
   const [globalError, setGlobalError] = useState<{title: string, message: string} | null>(null);
   const [isStudioBusy, setIsStudioBusy] = useState(false);
 
+  // Load Key
   useEffect(() => {
     const checkKey = async () => {
       if (window.aistudio) {
@@ -50,9 +53,42 @@ export const App: React.FC = () => {
     checkKey();
   }, []);
 
+  // Load Data from IndexedDB
   useEffect(() => {
-    localStorage.setItem('veo_continuity_v4', JSON.stringify(projects));
-  }, [projects]);
+    const loadData = async () => {
+      try {
+        const data = await getAllProjects();
+        setProjects(data);
+      } catch (e) {
+        console.error("Failed to load from IndexedDB:", e);
+        setGlobalError({
+          title: "Storage Error",
+          message: "Could not initialize the local database. Ensure your browser allows local storage."
+        });
+      } finally {
+        setIsLoadingStorage(false);
+      }
+    };
+    loadData();
+  }, []);
+
+  // Save Data to IndexedDB on change
+  useEffect(() => {
+    if (isLoadingStorage) return;
+    
+    const saveData = async () => {
+      try {
+        await saveAllProjects(projects);
+      } catch (e) {
+        console.error("Storage save error:", e);
+        // Don't show modal for every save error to avoid annoyance, but log it
+      }
+    };
+    
+    // Simple debounce to prevent slamming IndexedDB
+    const timeout = setTimeout(saveData, 1000);
+    return () => clearTimeout(timeout);
+  }, [projects, isLoadingStorage]);
 
   const activeProject = useMemo(() => 
     projects.find(p => p.id === activeProjectId), 
@@ -68,7 +104,7 @@ export const App: React.FC = () => {
 
   const handleCreateProject = useCallback((title: string) => {
     const newProject: Project = {
-      id: crypto.randomUUID(),
+      id: generateId(),
       title: title || "New Series",
       shots: [],
       draftingSlots: [
@@ -99,6 +135,30 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleApiError = useCallback((err: any, context: string = "Studio Error") => {
+    const errMsg = String(err);
+    if (errMsg.includes("Requested entity was not found.")) {
+      setHasKey(false);
+      handleKeySelection();
+      setGlobalError({
+        title: "Key Selection Required",
+        message: "Your current session key is invalid or has expired. Please re-select a paid Studio Key."
+      });
+    } else {
+      setGlobalError({ title: context, message: errMsg });
+    }
+  }, []);
+
+  if (isLoadingStorage) {
+    return (
+      <div className="min-h-screen bg-[#EAE3D9] flex flex-col items-center justify-center">
+        <CinematicBackground />
+        <Loader2 className="animate-spin text-black/20" size={48} />
+        <p className="mt-4 font-black uppercase text-[10px] tracking-[0.4em] text-black/40">Syncing Drawing Archive...</p>
+      </div>
+    );
+  }
+
   if (hasKey === false) {
     return (
       <div className="min-h-screen bg-[#EAE3D9] flex flex-col items-center justify-center p-6 text-center">
@@ -106,6 +166,7 @@ export const App: React.FC = () => {
         <div className="sketch-card p-12 max-w-md texture-hatch">
           <Key size={48} className="text-[#4A4A4A] mx-auto mb-6" />
           <h2 className="text-xl font-black text-black uppercase mb-4">Production Key Required</h2>
+          <p className="text-xs text-black/50 mb-6 uppercase tracking-widest font-bold">Select a key from a paid GCP project to continue.</p>
           <button onClick={handleKeySelection} className="pencil-button w-full py-4 font-black uppercase text-xs tracking-widest">Select Studio Key</button>
         </div>
       </div>
@@ -168,7 +229,6 @@ export const App: React.FC = () => {
 
         <div className="flex-grow overflow-y-auto custom-scrollbar p-6 lg:p-12">
           {!isProjectOpen ? (
-            // Remove unused onApiError and setProjects props
             <ProjectLibrary 
               projects={projects} 
               onCreateProject={handleCreateProject} 
@@ -184,14 +244,14 @@ export const App: React.FC = () => {
                   setIsStudioBusy={setIsStudioBusy}
                   onUpdateProject={handleUpdateActiveProject} 
                   onNavigateToExport={() => setActiveTab('export')} 
-                  onApiError={(err) => setGlobalError({title: "Studio Error", message: String(err)})} 
+                  onApiError={handleApiError} 
                 />
               )}
               {activeTab === 'export' && (
                 <ExportView 
                   project={activeProject} 
                   onUpdateProject={handleUpdateActiveProject}
-                  onApiError={(err) => setGlobalError({title: "Export Error", message: String(err)})} 
+                  onApiError={handleApiError} 
                 />
               )}
             </div>
