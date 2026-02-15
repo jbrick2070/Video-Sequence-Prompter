@@ -53,7 +53,8 @@ Production Prompt: ${s.actionPrompt}`;
     if (project.shots.length === 0 || !refineDirective) return;
     setIsRefining(true);
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+      // Fix: Creating new GoogleGenAI instance right before making an API call for up-to-date key access.
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       const systemInstruction = `You are an Aesthetic Master for Veo 3.1 cinematic sequences. Style: ${refineDirective}. Rewrite the action prompts to be descriptive and stylistically locked. Return JSON array.`;
       const shotData = sortedShots.map(s => ({ id: s.id, original_prompt: s.actionPrompt }));
       const response = await ai.models.generateContent({
@@ -88,7 +89,8 @@ Production Prompt: ${s.actionPrompt}`;
     if (project.shots.length === 0) return;
     setIsOptimizing(true);
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+      // Fix: Creating new GoogleGenAI instance right before making an API call for up-to-date key access.
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       const systemInstruction = `You are the Veo 3 Engine Optimizer. 1. COPYRIGHT SCRUBBING. 2. PROMPT DENSITY. 3. CINEMATIC LOGIC. Return JSON array.`;
       const shotData = sortedShots.map(s => ({ id: s.id, prompt: s.actionPrompt }));
       const response = await ai.models.generateContent({

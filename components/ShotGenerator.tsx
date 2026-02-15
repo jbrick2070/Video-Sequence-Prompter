@@ -1,10 +1,9 @@
-
 import React, { useState, useRef, useCallback } from 'react';
 import { Shot, Project, DraftingSlot, DEFAULT_STYLE } from '../types';
 import { GoogleGenAI, Type } from "@google/genai";
 import { 
   Film, Trash2, Loader2, Plus, 
-  Layers, X, ArrowRight, ArrowDownLeft, Zap, Workflow
+  Layers, X, ArrowRight, ArrowDownLeft, Zap, Workflow, RotateCcw
 } from 'lucide-react';
 
 interface ShotGeneratorProps {
@@ -12,13 +11,13 @@ interface ShotGeneratorProps {
   isStudioBusy: boolean;
   setIsStudioBusy: (busy: boolean) => void;
   onUpdateProject: (updater: Project | ((prev: Project) => Project)) => void;
+  onHardResetProject: (freshProject: Project) => void;
   onNavigateToExport: () => void;
   onApiError?: (error: any, context?: string) => void;
 }
 
 type BatchProcessingMode = 'standard' | 'chained' | 'looper';
 
-// Helper to clean model output and parse JSON safely
 const parseModelJson = (text: string) => {
   try {
     const cleaned = text.replace(/```json/g, '').replace(/```/g, '').trim();
@@ -30,17 +29,23 @@ const parseModelJson = (text: string) => {
 };
 
 export const ShotGenerator: React.FC<ShotGeneratorProps> = ({ 
-  project, isStudioBusy, setIsStudioBusy, onUpdateProject, onNavigateToExport, onApiError 
+  project, isStudioBusy, setIsStudioBusy, onUpdateProject, onHardResetProject, onNavigateToExport, onApiError 
 }) => {
   const [batchMode, setBatchMode] = useState<BatchProcessingMode>('chained');
   const [dragType, setDragType] = useState<string | null>(null);
-  
+  const [isResetting, setIsResetting] = useState(false);
   const fileInputRefs = useRef<{ [key: string]: HTMLInputElement | null }>({});
 
-  const styleDirective = project.styleDirective ?? DEFAULT_STYLE;
+  const styleDirective = project.styleDirective || DEFAULT_STYLE;
 
   const handleUpdateStyleDirective = (val: string) => {
     onUpdateProject(prev => ({ ...prev, styleDirective: val }));
+  };
+
+  const resetToDefaultStyle = () => {
+    if (window.confirm("Restore default charcoal style?")) {
+      handleUpdateStyleDirective(DEFAULT_STYLE);
+    }
   };
 
   const updateDrafts = useCallback((updater: DraftingSlot[] | ((prev: DraftingSlot[]) => DraftingSlot[])) => {
@@ -59,36 +64,44 @@ export const ShotGenerator: React.FC<ShotGeneratorProps> = ({
     }]);
   };
 
-  const handleNuclearReset = useCallback(() => {
-    const isConfirmed = window.confirm("WARNING: This will wipe ALL finalized shots, drafting data, and stylistic settings for this project. This cannot be undone. Proceed?");
-    if (isConfirmed) {
-      onUpdateProject((prev) => {
-        return {
-          ...prev,
-          shots: [],
-          draftingSlots: [{ id: 'shot-' + Date.now(), source: null, target: null, status: 'idle' }],
-          startingSequenceNumber: 1,
-          styleDirective: DEFAULT_STYLE,
-          lastModified: Date.now()
-        };
-      });
-      setDragType(null);
+  /**
+   * ULTRA SIMPLE RESET - AS REQUESTED
+   * Just build the fresh data and call the hard reset prop which saves and reloads.
+   */
+  const handleNuclearReset = () => {
+    if (!window.confirm("⚠️ DELETE EVERYTHING?\n\nThis will delete all shots and reload the page.\n\nContinue?")) {
+      return;
     }
-  }, [onUpdateProject]);
+    
+    console.log("🔥 Resetting...");
+    
+    const freshProject: Project = {
+      id: project.id,
+      title: project.title,
+      shots: [],
+      draftingSlots: [{ 
+        id: 'reset-' + Date.now(), 
+        source: null, 
+        target: null, 
+        status: 'idle' 
+      }],
+      startingSequenceNumber: 1,
+      styleDirective: DEFAULT_STYLE,
+      lastModified: Date.now()
+    };
+    
+    onHardResetProject(freshProject);
+  };
 
   const removePendingPair = (id: string) => {
     updateDrafts(prev => {
-      if (prev.length <= 1) {
-        return [{ id: 'shot-' + Date.now(), source: null, target: null, status: 'idle' }];
-      }
+      if (prev.length <= 1) return [{ id: 'shot-' + Date.now(), source: null, target: null, status: 'idle' }];
       return prev.filter(p => p.id !== id);
     });
   };
 
   const syncAlphaToBeta = (id: string) => {
-    updateDrafts(prev => prev.map(p => 
-      p.id === id ? { ...p, target: p.source } : p
-    ));
+    updateDrafts(prev => prev.map(p => p.id === id ? { ...p, target: p.source } : p));
   };
 
   const syncBetaToNext = (id: string) => {
@@ -131,7 +144,6 @@ export const ShotGenerator: React.FC<ShotGeneratorProps> = ({
 
     updateDrafts(prev => {
       let currentPairs = [...(prev || []).filter(p => p.source || p.target)];
-      
       if (type === 'alpha') {
         base64Files.forEach((img, i) => {
           if (currentPairs[i]) currentPairs[i].source = img;
@@ -147,14 +159,10 @@ export const ShotGenerator: React.FC<ShotGeneratorProps> = ({
           base64Files.forEach((current, i) => {
             const next = base64Files[i + 1];
             currentPairs.push({ id: 'h-' + i + Date.now(), source: current, target: current, status: 'idle' });
-            if (next) {
-              currentPairs.push({ id: 'm-' + i + Date.now(), source: current, target: next, status: 'idle' });
-            }
+            if (next) currentPairs.push({ id: 'm-' + i + Date.now(), source: current, target: next, status: 'idle' });
           });
         } else if (batchMode === 'looper') {
-          base64Files.forEach((img, i) => {
-            currentPairs.push({ id: 'l-' + i + Date.now(), source: img, target: img, status: 'idle' });
-          });
+          base64Files.forEach((img, i) => currentPairs.push({ id: 'l-' + i + Date.now(), source: img, target: img, status: 'idle' }));
         } else {
           for (let i = 0; i < base64Files.length; i += 2) {
             currentPairs.push({ id: 'p-' + i + Date.now(), source: base64Files[i], target: base64Files[i+1] || null, status: 'idle' });
@@ -184,16 +192,16 @@ export const ShotGenerator: React.FC<ShotGeneratorProps> = ({
     if (validPairs.length === 0) return;
 
     setIsStudioBusy(true);
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
     
     for (const pair of validPairs) {
       updateDrafts(prev => prev.map(p => p.id === pair.id ? { ...p, status: 'processing' } : p));
       try {
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
         const response = await ai.models.generateContent({
           model: 'gemini-3-flash-preview',
           contents: {
             parts: [
-              { text: `Analyze cinematic motion between frames. Style: ${styleDirective}. Output JSON.` },
+              { text: `Analyze cinematic motion between these frames.\n\nStyle Directive: ${styleDirective}\n\nTask: Generate a high-fidelity action prompt for Veo 3.1 that creates a smooth transition from the start frame (Alpha) to the end frame (Beta). Ensure absolute stylistic continuity. Output JSON.` },
               { inlineData: { data: (pair.source || '').split(',')[1] || '', mimeType: 'image/png' } },
               { inlineData: { data: (pair.target || '').split(',')[1] || '', mimeType: 'image/png' } }
             ]
@@ -249,7 +257,7 @@ export const ShotGenerator: React.FC<ShotGeneratorProps> = ({
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-12" key={project.id + project.lastModified}>
       <div className="lg:col-span-6 space-y-8">
         <div className="sketch-card texture-dots relative flex flex-col h-[90vh]">
           <div className="sticky top-0 z-40 bg-[#F5F1EA] border-b-2 border-black/10 px-8 pt-8 pb-4 rounded-t-[3rem] shadow-sm">
@@ -272,7 +280,14 @@ export const ShotGenerator: React.FC<ShotGeneratorProps> = ({
                   />
                 </div>
                 <button onClick={addPair} className="pencil-button px-4 py-2 text-[9px] font-black uppercase flex items-center gap-2 shadow-sm active:translate-y-0.5 transition-all"><Plus size={12} /> Add</button>
-                <button onClick={handleNuclearReset} className="pencil-button px-4 py-2 text-[9px] font-black uppercase bg-red-600 text-white border-red-900 hover:bg-red-500 flex items-center gap-2 active:translate-y-0.5 transition-all outline-none ring-offset-2 focus:ring-2 focus:ring-red-500"><Trash2 size={12} /> Reset All</button>
+                <button 
+                  onClick={handleNuclearReset} 
+                  disabled={isResetting || isStudioBusy}
+                  className="pencil-button px-4 py-2 text-[9px] font-black uppercase bg-red-600 text-white border-red-900 hover:bg-red-500 flex items-center gap-2 active:translate-y-0.5 transition-all outline-none ring-offset-2 focus:ring-2 focus:ring-red-500 shadow-lg disabled:opacity-50"
+                >
+                  {isResetting ? <Loader2 className="animate-spin" size={12} /> : <Trash2 size={12} />}
+                  {isResetting ? 'Resetting...' : 'Reset All'}
+                </button>
               </div>
             </div>
 
@@ -322,22 +337,27 @@ export const ShotGenerator: React.FC<ShotGeneratorProps> = ({
                     <ArrowDownLeft size={8} /> Push to next alpha
                   </button>
                 )}
-                <button onClick={() => removePendingPair(pair.id)} className="absolute top-2 right-2 text-black/10 hover:text-black transition-colors"><X size={14} /></button>
+                <button onClick={() => removePendingPair(pair.id)} className="absolute top-2 right-2 text-black/10 hover:text-red-500 transition-colors"><X size={14} /></button>
                 {pair.status === 'processing' && <div className="absolute inset-0 bg-white/70 flex items-center justify-center z-20 backdrop-blur-[1px]"><Loader2 className="animate-spin text-black" size={24} /></div>}
               </div>
             ))}
 
             <div className="pt-8 space-y-6">
-              <div className="space-y-2">
-                <label className="text-[9px] font-black uppercase text-black/40 tracking-widest">Master Aesthetic Style Directive</label>
+              <div className="space-y-2 relative">
+                <div className="flex justify-between items-center mb-1">
+                  <label className="text-[9px] font-black uppercase text-black/40 tracking-widest">Aesthetic Style Directive</label>
+                  <button onClick={resetToDefaultStyle} className="text-[8px] font-black uppercase text-black/20 hover:text-black flex items-center gap-1 transition-all">
+                    <RotateCcw size={10} /> Restore Default
+                  </button>
+                </div>
                 <textarea 
-                  value={styleDirective} 
-                  onChange={e => handleUpdateStyleDirective(e.target.value)} 
+                  defaultValue={styleDirective} 
+                  onBlur={e => handleUpdateStyleDirective(e.target.value)} 
                   className="w-full h-32 bg-white border-2 border-black/10 p-4 text-[11px] font-mono leading-relaxed outline-none focus:border-black resize-none transition-all shadow-inner" 
                   placeholder="Master Aesthetic Logic..." 
                 />
               </div>
-              <button onClick={processBatch} disabled={isStudioBusy} className="w-full pencil-button py-6 text-sm font-black uppercase tracking-[0.4em] shadow-lg active:scale-[0.98] transition-all">
+              <button onClick={processBatch} disabled={isStudioBusy || isResetting} className="w-full pencil-button py-6 text-sm font-black uppercase tracking-[0.4em] shadow-lg active:scale-[0.98] transition-all disabled:opacity-50">
                 {isStudioBusy ? <Loader2 className="animate-spin mx-auto" /> : 'EXECUTE DRAFT BATCH'}
               </button>
             </div>

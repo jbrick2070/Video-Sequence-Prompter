@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Project, Shot, DEFAULT_STYLE } from './types';
 import { ShotGenerator } from './components/ShotGenerator';
@@ -27,12 +26,14 @@ const generateId = () => {
   }
 };
 
+type ActiveTab = 'shots' | 'export';
+
 export const App: React.FC = () => {
   const [hasKey, setHasKey] = useState<boolean | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [isLoadingStorage, setIsLoadingStorage] = useState(true);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'shots' | 'export'>('shots');
+  const [activeTab, setActiveTab] = useState<ActiveTab>('shots');
   const [globalError, setGlobalError] = useState<{title: string, message: string} | null>(null);
   const [isStudioBusy, setIsStudioBusy] = useState(false);
 
@@ -72,7 +73,7 @@ export const App: React.FC = () => {
     loadData();
   }, []);
 
-  // Save Data to IndexedDB on change
+  // Save Data to IndexedDB on change (debounced)
   useEffect(() => {
     if (isLoadingStorage) return;
     
@@ -124,6 +125,27 @@ export const App: React.FC = () => {
       return p;
     }));
   }, [activeProjectId]);
+
+  /**
+   * NUCLEAR HARD RESET
+   * Bypasses the debounce and writes directly to storage before reloading.
+   */
+  const handleHardResetProject = useCallback(async (freshProject: Project) => {
+    // 1. Update local state immediately
+    const updatedProjects = projects.map(p => p.id === activeProjectId ? freshProject : p);
+    setProjects(updatedProjects);
+    
+    // 2. Immediate direct write to storage to ensure the reload picks it up
+    try {
+      await saveAllProjects(updatedProjects);
+      console.log("Atomic save successful. Reloading page for guaranteed reset...");
+      window.location.reload();
+    } catch (e) {
+      console.error("Hard reset storage error:", e);
+      // Fallback: If DB write fails, still try to reload after a tiny delay
+      setTimeout(() => window.location.reload(), 100);
+    }
+  }, [projects, activeProjectId]);
 
   const handleKeySelection = async () => {
     if (window.aistudio) {
@@ -196,7 +218,7 @@ export const App: React.FC = () => {
         <div className="p-4 space-y-4 flex-grow">
           <button onClick={() => setActiveProjectId(null)} className={`w-full flex items-center gap-4 px-4 py-5 transition-all border-2 ${!isProjectOpen ? 'bg-black text-white border-black' : 'bg-transparent text-black/40 border-transparent hover:border-black/10'}`}>
             <LayoutGrid size={24} />
-            <span className="font-black uppercase text-xs tracking-widest hidden lg:block">Registry</span>
+            <span className="font-black uppercase text-xs tracking-widest hidden lg:block">Archive</span>
           </button>
           {isProjectOpen && (
             <>
@@ -242,6 +264,7 @@ export const App: React.FC = () => {
                   isStudioBusy={isStudioBusy}
                   setIsStudioBusy={setIsStudioBusy}
                   onUpdateProject={handleUpdateActiveProject} 
+                  onHardResetProject={handleHardResetProject}
                   onNavigateToExport={() => setActiveTab('export')} 
                   onApiError={handleApiError} 
                 />
