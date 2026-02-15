@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Project, Shot } from './types';
+import { Project, Shot, DEFAULT_STYLE } from './types';
 import { ShotGenerator } from './components/ShotGenerator';
 import { ExportView } from './components/ExportView';
 import { ProjectLibrary } from './components/ProjectLibrary';
@@ -81,11 +81,9 @@ export const App: React.FC = () => {
         await saveAllProjects(projects);
       } catch (e) {
         console.error("Storage save error:", e);
-        // Don't show modal for every save error to avoid annoyance, but log it
       }
     };
     
-    // Simple debounce to prevent slamming IndexedDB
     const timeout = setTimeout(saveData, 1000);
     return () => clearTimeout(timeout);
   }, [projects, isLoadingStorage]);
@@ -110,6 +108,7 @@ export const App: React.FC = () => {
       draftingSlots: [
         { id: 'init-' + Date.now(), source: null, target: null, status: 'idle' }
       ],
+      styleDirective: DEFAULT_STYLE,
       lastModified: Date.now()
     };
     setProjects(prev => [...prev, newProject]);

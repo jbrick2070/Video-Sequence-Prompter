@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useCallback } from 'react';
-import { Shot, Project, DraftingSlot } from '../types';
+import { Shot, Project, DraftingSlot, DEFAULT_STYLE } from '../types';
 import { GoogleGenAI, Type } from "@google/genai";
 import { 
   Film, Trash2, Loader2, Plus, 
@@ -32,13 +32,16 @@ const parseModelJson = (text: string) => {
 export const ShotGenerator: React.FC<ShotGeneratorProps> = ({ 
   project, isStudioBusy, setIsStudioBusy, onUpdateProject, onNavigateToExport, onApiError 
 }) => {
-  const [styleDirective, setStyleDirective] = useState<string>(
-    "Cinematic storyboards, high-fidelity textures, detailed lighting, dynamic action sequence."
-  );
   const [batchMode, setBatchMode] = useState<BatchProcessingMode>('chained');
   const [dragType, setDragType] = useState<string | null>(null);
   
   const fileInputRefs = useRef<{ [key: string]: HTMLInputElement | null }>({});
+
+  const styleDirective = project.styleDirective ?? DEFAULT_STYLE;
+
+  const handleUpdateStyleDirective = (val: string) => {
+    onUpdateProject(prev => ({ ...prev, styleDirective: val }));
+  };
 
   const updateDrafts = useCallback((updater: DraftingSlot[] | ((prev: DraftingSlot[]) => DraftingSlot[])) => {
     onUpdateProject(prev => ({
@@ -57,13 +60,18 @@ export const ShotGenerator: React.FC<ShotGeneratorProps> = ({
   };
 
   const handleNuclearReset = useCallback(() => {
-    if (window.confirm("RESET EVERYTHING? This will delete all drafting work and the final sequence strip.")) {
-      onUpdateProject((prev) => ({
-        ...prev,
-        shots: [],
-        draftingSlots: [{ id: 'shot-' + Date.now(), source: null, target: null, status: 'idle' }],
-        startingSequenceNumber: 1
-      }));
+    const isConfirmed = window.confirm("WARNING: This will wipe ALL finalized shots, drafting data, and stylistic settings for this project. This cannot be undone. Proceed?");
+    if (isConfirmed) {
+      onUpdateProject((prev) => {
+        return {
+          ...prev,
+          shots: [],
+          draftingSlots: [{ id: 'shot-' + Date.now(), source: null, target: null, status: 'idle' }],
+          startingSequenceNumber: 1,
+          styleDirective: DEFAULT_STYLE,
+          lastModified: Date.now()
+        };
+      });
       setDragType(null);
     }
   }, [onUpdateProject]);
@@ -176,7 +184,6 @@ export const ShotGenerator: React.FC<ShotGeneratorProps> = ({
     if (validPairs.length === 0) return;
 
     setIsStudioBusy(true);
-    // Create new instance as per instructions
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
     
     for (const pair of validPairs) {
@@ -265,7 +272,7 @@ export const ShotGenerator: React.FC<ShotGeneratorProps> = ({
                   />
                 </div>
                 <button onClick={addPair} className="pencil-button px-4 py-2 text-[9px] font-black uppercase flex items-center gap-2 shadow-sm active:translate-y-0.5 transition-all"><Plus size={12} /> Add</button>
-                <button onClick={handleNuclearReset} className="pencil-button px-4 py-2 text-[9px] font-black uppercase bg-red-600 text-white border-red-900 hover:bg-red-500 flex items-center gap-2 active:translate-y-0.5 transition-all"><Trash2 size={12} /> Reset All</button>
+                <button onClick={handleNuclearReset} className="pencil-button px-4 py-2 text-[9px] font-black uppercase bg-red-600 text-white border-red-900 hover:bg-red-500 flex items-center gap-2 active:translate-y-0.5 transition-all outline-none ring-offset-2 focus:ring-2 focus:ring-red-500"><Trash2 size={12} /> Reset All</button>
               </div>
             </div>
 
@@ -322,8 +329,13 @@ export const ShotGenerator: React.FC<ShotGeneratorProps> = ({
 
             <div className="pt-8 space-y-6">
               <div className="space-y-2">
-                <label className="text-[9px] font-black uppercase text-black/40 tracking-widest">Aesthetic Style Directive</label>
-                <textarea value={styleDirective} onChange={e => setStyleDirective(e.target.value)} className="w-full h-24 bg-white border-2 border-black/10 p-4 text-[11px] font-mono leading-relaxed outline-none focus:border-black resize-none transition-all shadow-inner" placeholder="Cinematic textures, high fidelity lighting..." />
+                <label className="text-[9px] font-black uppercase text-black/40 tracking-widest">Master Aesthetic Style Directive</label>
+                <textarea 
+                  value={styleDirective} 
+                  onChange={e => handleUpdateStyleDirective(e.target.value)} 
+                  className="w-full h-32 bg-white border-2 border-black/10 p-4 text-[11px] font-mono leading-relaxed outline-none focus:border-black resize-none transition-all shadow-inner" 
+                  placeholder="Master Aesthetic Logic..." 
+                />
               </div>
               <button onClick={processBatch} disabled={isStudioBusy} className="w-full pencil-button py-6 text-sm font-black uppercase tracking-[0.4em] shadow-lg active:scale-[0.98] transition-all">
                 {isStudioBusy ? <Loader2 className="animate-spin mx-auto" /> : 'EXECUTE DRAFT BATCH'}
