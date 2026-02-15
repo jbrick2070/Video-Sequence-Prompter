@@ -25,7 +25,7 @@ export const ShotGenerator: React.FC<ShotGeneratorProps> = ({
     "Cinematic storyboards, high-fidelity textures, detailed lighting, dynamic action sequence."
   );
   const [batchMode, setBatchMode] = useState<BatchProcessingMode>('chained');
-  const [dragType, setDragType] = useState<'alpha' | 'beta' | 'mixed' | string | null>(null);
+  const [dragType, setDragType] = useState<string | null>(null);
   
   const fileInputRefs = useRef<{ [key: string]: HTMLInputElement | null }>({});
 
@@ -162,8 +162,7 @@ export const ShotGenerator: React.FC<ShotGeneratorProps> = ({
 
     setIsStudioBusy(true);
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    let currentCount = (project.startingSequenceNumber || 1) + project.shots.length;
-
+    
     for (const pair of validPairs) {
       updateDrafts(prev => prev.map(p => p.id === pair.id ? { ...p, status: 'processing' } : p));
       try {
@@ -189,26 +188,37 @@ export const ShotGenerator: React.FC<ShotGeneratorProps> = ({
             }
           }
         });
+        
         const result = JSON.parse(response.text || "{}");
-        const newShot: Shot = {
-          id: 'gen-' + Math.random().toString(36).substr(2, 9),
-          sequenceOrder: currentCount++,
-          topic: result.topic || "Sequence",
-          visualAnalysis: result.analysis,
-          actionPrompt: result.prompt,
-          sourceImage: pair.source!,
-          targetImage: pair.target!,
-          model: 'veo-3.1-generate-preview',
-          aspectRatio: '16:9',
-          resolution: '1080p'
-        };
-        onUpdateProject(prev => ({ ...prev, shots: [...prev.shots, newShot] }));
+        
+        // Use functional updater to get latest state for sequence numbers
+        onUpdateProject(prev => {
+          const baseNum = prev.startingSequenceNumber || 1;
+          const currentCount = baseNum + prev.shots.length;
+          
+          const newShot: Shot = {
+            id: 'gen-' + Math.random().toString(36).substr(2, 9),
+            sequenceOrder: currentCount,
+            topic: result.topic || "Sequence",
+            visualAnalysis: result.analysis,
+            actionPrompt: result.prompt,
+            sourceImage: pair.source!,
+            targetImage: pair.target!,
+            model: 'veo-3.1-generate-preview',
+            aspectRatio: '16:9',
+            resolution: '1080p'
+          };
+          
+          return { ...prev, shots: [...prev.shots, newShot] };
+        });
+        
         updateDrafts(prev => prev.map(p => p.id === pair.id ? { ...p, status: 'completed' } : p));
       } catch (err) {
         updateDrafts(prev => prev.map(p => p.id === pair.id ? { ...p, status: 'error' } : p));
         if (onApiError) onApiError(err);
       }
     }
+    
     setIsStudioBusy(false);
     updateDrafts(prev => {
         const filtered = prev.filter(p => p.status !== 'completed');

@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Project, Shot } from '../types';
 import { FileText, Package, Loader2, Sparkles, Palette, Wand2, Zap, ShieldAlert, Rocket } from 'lucide-react';
 import { GoogleGenAI, Type } from "@google/genai";
@@ -18,11 +18,18 @@ export const ExportView: React.FC<ExportViewProps> = ({ project, onUpdateProject
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [refineDirective, setRefineDirective] = useState('Cinematic movie style, detailed textures, high fidelity lighting, smooth transition logic');
   
-  const content = project.shots.sort((a,b) => a.sequenceOrder - b.sequenceOrder).map((s) => {
-    return `${s.sequenceOrder}. [${s.topic}]
+  // Use useMemo to avoid re-sorting on every render and fix mutation bug
+  const sortedShots = useMemo(() => {
+    return [...project.shots].sort((a, b) => a.sequenceOrder - b.sequenceOrder);
+  }, [project.shots]);
+
+  const content = useMemo(() => {
+    return sortedShots.map((s) => {
+      return `${s.sequenceOrder}. [${s.topic}]
 Visual Analysis: ${s.visualAnalysis}
 Production Prompt: ${s.actionPrompt}`;
-  }).join('\n\n---\n\n');
+    }).join('\n\n---\n\n');
+  }, [sortedShots]);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(content).then(() => {
@@ -37,7 +44,7 @@ Production Prompt: ${s.actionPrompt}`;
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       const systemInstruction = `You are an Aesthetic Master for Veo 3.1 cinematic sequences. Style: ${refineDirective}. Rewrite the action prompts to be descriptive and stylistically locked. Return JSON array.`;
-      const shotData = project.shots.sort((a,b) => a.sequenceOrder - b.sequenceOrder).map(s => ({ id: s.id, original_prompt: s.actionPrompt }));
+      const shotData = sortedShots.map(s => ({ id: s.id, original_prompt: s.actionPrompt }));
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
         contents: { parts: [{ text: systemInstruction }, { text: JSON.stringify(shotData) }] },
@@ -72,7 +79,7 @@ Production Prompt: ${s.actionPrompt}`;
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       const systemInstruction = `You are the Veo 3 Engine Optimizer. 1. COPYRIGHT SCRUBBING. 2. PROMPT DENSITY. 3. CINEMATIC LOGIC. Return JSON array.`;
-      const shotData = project.shots.sort((a,b) => a.sequenceOrder - b.sequenceOrder).map(s => ({ id: s.id, prompt: s.actionPrompt }));
+      const shotData = sortedShots.map(s => ({ id: s.id, prompt: s.actionPrompt }));
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
         contents: { parts: [{ text: systemInstruction }, { text: JSON.stringify(shotData) }] },
@@ -107,7 +114,7 @@ Production Prompt: ${s.actionPrompt}`;
     try {
       const zip = new JSZip();
       const imgFolder = zip.folder("production_frames");
-      project.shots.forEach((shot) => {
+      sortedShots.forEach((shot) => {
         const num = shot.sequenceOrder.toString().padStart(3, '0');
         if (shot.sourceImage) imgFolder?.file(`SHOT_${num}_A_START.png`, shot.sourceImage.split(',')[1], { base64: true });
         if (shot.targetImage) imgFolder?.file(`SHOT_${num}_B_END.png`, shot.targetImage.split(',')[1], { base64: true });

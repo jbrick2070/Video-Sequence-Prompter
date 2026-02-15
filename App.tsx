@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Project, Shot } from './types';
 import { ShotGenerator } from './components/ShotGenerator';
@@ -167,13 +168,12 @@ export const App: React.FC = () => {
 
         <div className="flex-grow overflow-y-auto custom-scrollbar p-6 lg:p-12">
           {!isProjectOpen ? (
+            // Remove unused onApiError and setProjects props
             <ProjectLibrary 
               projects={projects} 
               onCreateProject={handleCreateProject} 
               onSelectProject={handleSelectProject} 
               onDeleteProject={(id) => setProjects(prev => prev.filter(p => p.id !== id))} 
-              onApiError={(err) => setGlobalError({title: "Library Error", message: String(err)})}
-              setProjects={setProjects}
             />
           ) : (
             <div className="max-w-7xl mx-auto">

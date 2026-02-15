@@ -8,8 +8,6 @@ interface ProjectLibraryProps {
   onCreateProject: (title: string) => void;
   onSelectProject: (projectId: string) => void;
   onDeleteProject: (projectId: string) => void;
-  onApiError: (error: any) => void;
-  setProjects: React.Dispatch<React.SetStateAction<Project[]>>;
 }
 
 export const ProjectLibrary: React.FC<ProjectLibraryProps> = ({ projects, onCreateProject, onSelectProject, onDeleteProject }) => {
@@ -75,7 +73,7 @@ export const ProjectLibrary: React.FC<ProjectLibraryProps> = ({ projects, onCrea
                <h2 className="text-4xl font-black text-black italic uppercase tracking-tighter leading-none mb-2">New Series</h2>
                <div className="h-1 w-16 bg-black/10 texture-hatch"></div>
              </div>
-             <form onSubmit={(e) => { e.preventDefault(); onCreateProject(newTitle); setIsModalOpen(false); }} className="space-y-10">
+             <form onSubmit={(e) => { e.preventDefault(); onCreateProject(newTitle); setNewTitle(''); setIsModalOpen(false); }} className="space-y-10">
                <div className="space-y-3">
                  <label className="text-[9px] font-black uppercase text-black/40 tracking-[0.4em]">Working Title</label>
                  <input autoFocus value={newTitle} onChange={e => setNewTitle(e.target.value)} placeholder="Untitled Production..." className="w-full bg-transparent border-b-2 border-black/10 text-black text-3xl font-black py-3 outline-none focus:border-black italic transition-colors placeholder:text-black/5" />
